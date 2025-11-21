@@ -10,10 +10,4 @@
   <ItemGroup>
     <PackageReference Include="fo-dicom" Version="5.2.5" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="0b5e1a5b-a398-45ec-bb86-d01c37713e39\1.2.840.113619.2.479.3.2831201656.249.1763329612.429.1.dcm">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>
