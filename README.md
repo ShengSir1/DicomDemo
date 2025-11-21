@@ -35,12 +35,17 @@
 - 图像导出：支持将DICOM图像导出为常见格式(如BMP、PNG、JPEG)
 
 ## 系统要求
+### 开发环境
 
 - .NET 10.0 或更高版本
 
+- Windows 10/11 操作系统
+### 运行环境
 - Windows 7/10/11 操作系统
 
-- 磁盘空间：至少10MB可用空间
+- 磁盘空间：至少120MB可用空间
+
+- RAM：至少160MB可用空间
 
 ## 安装步骤
 
@@ -53,12 +58,13 @@
 2. 依赖安装
    ### 通过NuGet安装fo-dicom库
    Install-Package fo-dicom
-   
-3. 运行应用
+   ### 通过NuGet安装HandyControl库
+   Install-Package HandyControl
+4. 运行应用
    
    - 通过编译器/命令行启动
 
-   - 或双击解压后的可执行文件（暂不支持...）
+   - 或双击解压后的可执行文件
 
 ## 使用指南
 
@@ -107,10 +113,11 @@ var bitmap = dicomImage.RenderImage().AsWriteableBitmap();
 ### 项目结构
 
 ```
-DicomDemo/
+DicomDemo/            # 控制台项目可忽略
 └── Utils/            # 工具类
 WpfApp/
 ├── wwwroot/          # 静态icon资源
+├── Utils/            # 工具类
 ├── ViewModels/       # 视图模型
 └── Views/            # 用户界面
 ```
