@@ -26,5 +26,4 @@ var patientId = file.Dataset.GetString(DicomTag.PatientID);
 var patientName = DicomHelp.ReadDicomStringWithLibraryEncoding(file.Dataset, DicomTag.PatientName);
 
 Console.WriteLine($"Patient ID: {patientId}");
-var test = "";
 Console.WriteLine($"Patient Name: {patientName}");

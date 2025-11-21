@@ -1,4 +1,3 @@
-using DicomDemo.Utils;
 using FellowOakDicom;
 using HandyControl.Controls;
 using Microsoft.Win32;
@@ -9,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using WpfApp.Utils;
 
 namespace WpfApp.ViewModels
 {
@@ -452,8 +452,8 @@ namespace WpfApp.ViewModels
                     await Task.Run(() =>
                     {
                         var dicomFile = DicomFile.Open(SelectedFilePath);
-                        var valueToSave = DicomHelp.ConvertGb18030ToIsoIr100(entry.Value);
-                        dicomFile.Dataset.AddOrUpdate(entry.Tag, valueToSave);
+                        var ds = dicomFile.Dataset;
+                        DicomHelp.WriteDicomStringWithChineseHandling(ds, entry.Tag, entry.Value);
                         dicomFile.Save(SelectedFilePath);
                     });
 
