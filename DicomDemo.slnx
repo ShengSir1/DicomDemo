@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DicomDemo/DicomDemo.csproj" />
+  <Project Path="WpfApp/WpfApp.csproj" />
+</Solution>
