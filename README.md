@@ -1,12 +1,14 @@
 # DICOM文件编辑器
 
-一个基于.NET 10、WPF MVVM、HandyControl库和fo-dicom库开发的DICOM文件编辑器，支持对DICOM标签进行完整的增删改查操作。
+一个基于.NET 10、WPF MVVM、HandyControl库和fo-dicom和fo-dicom.Imaging.ImageSharp库开发的DICOM文件编辑器，支持对DICOM标签进行完整的增删改查操作，支持展示、动态调整DICOM图像窗宽窗位
 
 ## 功能特点
 
 ### 核心功能
 
 - 完整的DICOM标签管理：支持添加、删除、修改和查询DICOM文件中的所有标签
+
+- DICOM图像处理：支持展示、动态调整窗宽窗位
 
 - 多框架支持：基于fo-dicom库，完全兼容DICOM 3.0标准
 
@@ -24,15 +26,15 @@
 
 - 批量操作：支持对多个标签进行批量处理
 
-### 图像处理(正在开发中...)
+### 图像处理
 
-- 图像渲染：使用DicomImage类进行高质量的DICOM图像渲染
+- 图像渲染：使用fo-dicom扩展库 ImageSharp 高质量的DICOM图像渲染
 
 - 窗宽窗位调整：支持动态调整窗宽(WindowWidth)和窗位(WindowCenter)
 
-- 多帧支持：完整支持多帧DICOM图像的显示和操作
+- 多帧支持：完整支持多帧DICOM图像的显示和操作（待开发...）
 
-- 图像导出：支持将DICOM图像导出为常见格式(如BMP、PNG、JPEG)
+- 图像导出：支持将DICOM图像导出为常见格式(如BMP、PNG、JPEG)（待开发...）
 
 ## 系统要求
 ### 开发环境
@@ -43,7 +45,7 @@
 ### 运行环境
 - Windows 7/10/11 操作系统
 
-- 磁盘空间：至少136MB可用空间
+- 磁盘空间：至少137MB可用空间
 
 - RAM：至少160MB可用空间
 
@@ -53,13 +55,15 @@
    
    - 克隆源代码自行编译
 
-   - 或从Release页面下载最新版本的安装包（暂不支持...）
+   - 或从Release页面下载最新版本的安装包
 
 2. 依赖安装
    ### 通过NuGet安装fo-dicom库
    Install-Package fo-dicom
    ### 通过NuGet安装HandyControl库
    Install-Package HandyControl
+   ### 通过NuGet安装fo-dicom扩展库
+   Install-Package fo-dicom.Imaging.ImageSharp
 4. 运行应用
    
    - 通过编译器/命令行启动
@@ -83,13 +87,13 @@
 
    - 输入新值并确认保存更改
 
-### 图像操作技巧（暂不支持...）
+### 图像操作技巧
 
 // 图像渲染示例代码
-Dicom.Imaging.ImageManager.SetImplementation(Dicom.Imaging.WPFImageManager.Instance);
+new DicomSetupBuilder().RegisterServices(s => s.AddFellowOakDicom().AddImageManager<ImageSharpImageManager>()).Build();
 DicomFile dicomFile = DicomFile.Open(@"path/to/file.dcm");
 DicomImage dicomImage = new DicomImage(dicomFile.Dataset);
-var bitmap = dicomImage.RenderImage().AsWriteableBitmap();
+var sharpImage = dicomImage.RenderImage().AsSharpImage();
 
 
 ## 高级功能（暂不支持...）
