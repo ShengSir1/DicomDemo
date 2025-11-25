@@ -1,6 +1,8 @@
 using FellowOakDicom;
+using FellowOakDicom.Imaging;
 using HandyControl.Controls;
 using Microsoft.Win32;
+using SixLabors.ImageSharp;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -8,6 +10,8 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using WpfApp.Utils;
 
 namespace WpfApp.ViewModels
@@ -58,12 +62,22 @@ namespace WpfApp.ViewModels
         /// 修改提示控制标志
         /// </summary>
         private bool _suppressChangePrompt = false;
+        /// <summary>
+        /// 图像源
+        /// </summary>
+        private ImageSource? _imageSource;
+        public ImageSource? ImageSource
+        {
+            get => _imageSource;
+            set { _imageSource = value; OnPropertyChanged(); }
+        }
 
         //命令
         public ICommand BrowseCommand { get; }
         public ICommand ClearCommand { get; }
         public ICommand AddTagCommand { get; }
         public ICommand RemoveTagCommand { get; }
+        public ICommand LoadImageCommand { get; }
 
 
         public MainViewModel()
@@ -72,9 +86,54 @@ namespace WpfApp.ViewModels
             ClearCommand = new RelayCommand(_ => ClearData(), _ => DicomTags.Count > 0 || FileBasic.Count > 0 || !string.IsNullOrEmpty(SelectedFileName) || !string.IsNullOrEmpty(SelectedFilePath));
             AddTagCommand = new RelayCommand(async _ => await AddTagAsync(), _ => !string.IsNullOrEmpty(SelectedFilePath) && File.Exists(SelectedFilePath));
             RemoveTagCommand = new RelayCommand(async p => await RemoveSelectedTagAsync(p as DicomTagEntry), p => p is DicomTagEntry && !string.IsNullOrEmpty(SelectedFilePath) && File.Exists(SelectedFilePath));
+            LoadImageCommand = new RelayCommand(async _ => await LoadImageAsync(SelectedFilePath), _ => !string.IsNullOrEmpty(SelectedFilePath) && File.Exists(SelectedFilePath));
         }
 
         //方法
+        private async Task LoadImageAsync(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = true);
+
+                    var image = new DicomImage(path);
+
+                    // 渲染为 ImageSharp 对象
+                    using var sharpImage = image.RenderImage().AsSharpImage();
+
+                    // 转换为 WPF 可用的 BitmapImage
+                    // 将 ImageSharp 图片保存到内存流 (Bmp格式兼容性最好)
+                    using var ms = new MemoryStream();
+                    await sharpImage.SaveAsBmpAsync(ms);
+                    ms.Seek(0, SeekOrigin.Begin);
+
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.StreamSource = ms;
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad; // 必须设置，否则流关闭后图片会消失
+                        bitmap.EndInit();
+                        bitmap.Freeze(); // 冻结对象以便跨线程访问（虽然这里是在 UI 线程创建的，但好习惯）
+
+                        ImageSource = bitmap;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    await Application.Current.Dispatcher.InvokeAsync(() => Growl.Error($"加载图像失败：{ex.Message}"));
+                }
+                finally
+                {
+                    await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = false);
+                }
+            });
+        }
+
         private async Task BrowseFileAsync()
         {
             var dlg = new OpenFileDialog
@@ -84,6 +143,7 @@ namespace WpfApp.ViewModels
             if (dlg.ShowDialog() == true)
             {
                 await LoadDicomAsync(dlg.FileName);
+                await LoadImageAsync(dlg.FileName);
             }
         }
 
@@ -504,6 +564,7 @@ namespace WpfApp.ViewModels
             FileBasic.Clear();
             SelectedFileName = string.Empty;
             SelectedFilePath = string.Empty;
+            ImageSource = null;
             CommandManager.InvalidateRequerySuggested();
         }
     }

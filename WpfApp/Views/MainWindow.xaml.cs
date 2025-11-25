@@ -1,4 +1,6 @@
-﻿using System.Windows;
+﻿using FellowOakDicom;
+using FellowOakDicom.Imaging;
+using System.Windows;
 using WpfApp.ViewModels;
 
 namespace WpfApp
@@ -12,6 +14,9 @@ namespace WpfApp
         {
             InitializeComponent();
             DataContext = new MainViewModel();
+            new DicomSetupBuilder()
+    .RegisterServices(s => s.AddFellowOakDicom().AddImageManager<ImageSharpImageManager>())
+.Build();
         }
     }
 }
