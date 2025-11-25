@@ -62,14 +62,44 @@ namespace WpfApp.ViewModels
         /// 修改提示控制标志
         /// </summary>
         private bool _suppressChangePrompt = false;
+        
+        private ImageSource? _imageSource;
         /// <summary>
         /// 图像源
         /// </summary>
-        private ImageSource? _imageSource;
         public ImageSource? ImageSource
         {
             get => _imageSource;
             set { _imageSource = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// 持有当前图像实例
+        /// </summary>
+        private DicomImage? _currentDicomImage; 
+        /// <summary>
+        /// 简单的渲染锁，防止卡顿
+        /// </summary>
+        private bool _isRendering = false;
+
+        private double _windowCenter;
+        /// <summary>
+        /// 当前窗位
+        /// </summary>
+        public double WindowCenter
+        {
+            get => _windowCenter;
+            set { _windowCenter = value; OnPropertyChanged(); }
+        }
+
+        private double _windowWidth;
+        /// <summary>
+        /// 当前窗宽
+        /// </summary>
+        public double WindowWidth
+        {
+            get => _windowWidth;
+            set { _windowWidth = value; OnPropertyChanged(); }
         }
 
         //命令
@@ -90,50 +120,12 @@ namespace WpfApp.ViewModels
         }
 
         //方法
-        private async Task LoadImageAsync(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return;
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = true);
-
-                    var image = new DicomImage(path);
-
-                    // 渲染为 ImageSharp 对象
-                    using var sharpImage = image.RenderImage().AsSharpImage();
-
-                    // 转换为 WPF 可用的 BitmapImage
-                    // 将 ImageSharp 图片保存到内存流 (Bmp格式兼容性最好)
-                    using var ms = new MemoryStream();
-                    await sharpImage.SaveAsBmpAsync(ms);
-                    ms.Seek(0, SeekOrigin.Begin);
-
-                    await Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        var bitmap = new BitmapImage();
-                        bitmap.BeginInit();
-                        bitmap.StreamSource = ms;
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad; // 必须设置，否则流关闭后图片会消失
-                        bitmap.EndInit();
-                        bitmap.Freeze(); // 冻结对象以便跨线程访问（虽然这里是在 UI 线程创建的，但好习惯）
-
-                        ImageSource = bitmap;
-                    });
-                }
-                catch (Exception ex)
-                {
-                    await Application.Current.Dispatcher.InvokeAsync(() => Growl.Error($"加载图像失败：{ex.Message}"));
-                }
-                finally
-                {
-                    await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = false);
-                }
-            });
-        }
-
+        /// <summary>
+        /// 浏览打开DCM文件
+        /// </summary>
+        /// <remarks>
+        /// 此方法在用户选择文件后加载DICOM数据和图像。
+        /// </remarks>
         private async Task BrowseFileAsync()
         {
             var dlg = new OpenFileDialog
@@ -147,6 +139,156 @@ namespace WpfApp.ViewModels
             }
         }
 
+        /// <summary>
+        /// 清除所有加载的数据并将选择状态重置为默认值。
+        /// </summary>
+        /// <remarks>
+        /// 此方法取消订阅事件处理程序、清除内部集合并重置相关属性。
+        /// 应该调用它来释放资源并为新数据准备对象，或者在加载新文件之前，确保状态干净。
+        /// </remarks>
+        private void ClearData()
+        {
+            foreach (var e in DicomTags) e.PropertyChanged -= OnDicomEntryPropertyChanged;
+            DicomTags.Clear();
+            FileBasic.Clear();
+            SelectedFileName = string.Empty;
+            SelectedFilePath = string.Empty;
+            ImageSource = null;
+            CommandManager.InvalidateRequerySuggested();
+        }
+
+        #region 图像相关方法
+
+        /// <summary>
+        /// 加载图像
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        private async Task LoadImageAsync(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+
+            // 如果已经在忙，就不重复加载（或者根据需求取消上一次）
+            // 这里简单处理，重置状态
+            _currentDicomImage = null;
+
+            try
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = true);
+
+                await Task.Run(async () =>
+                {
+                    // 1. 初始化 DicomImage 并保存实例
+                    _currentDicomImage = new DicomImage(path);
+
+                    // 2. 获取初始的窗宽窗位
+                    _windowCenter = _currentDicomImage.WindowCenter;
+                    _windowWidth = _currentDicomImage.WindowWidth;
+
+                    // 更新 UI 上的数值
+                    OnPropertyChanged(nameof(WindowCenter));
+                    OnPropertyChanged(nameof(WindowWidth));
+
+                    // 3. 初始渲染
+                    await RenderCurrentDicomImageAsync();
+                });
+            }
+            catch (Exception ex)
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() => Growl.Error($"加载图像失败：{ex.Message}"));
+            }
+            finally
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = false);
+            }
+        }
+
+        /// <summary>
+        /// 调整窗宽窗位
+        /// </summary>
+        /// <param name="deltaX">鼠标水平移动距离 (影响窗宽)</param>
+        /// <param name="deltaY">鼠标垂直移动距离 (影响窗位)</param>
+        public void AdjustWindowLevel(double deltaX, double deltaY)
+        {
+            if (_currentDicomImage == null) return;
+
+            // 调整灵敏度，可以根据需要修改
+            const double sensitivity = 2.0;
+
+            // 也就是：水平拖动改变窗宽(Contrast)，垂直拖动改变窗位(Brightness)
+            // DICOM 习惯：
+            // Window Width (Contrast): 越小对比度越高
+            // Window Center (Brightness): 越小越亮
+
+            _windowWidth += deltaX * sensitivity;
+            _windowCenter += deltaY * sensitivity;
+
+            // 窗宽不能小于 1
+            if (_windowWidth < 1) _windowWidth = 1;
+
+            // 更新到 DicomImage 对象
+            _currentDicomImage.WindowWidth = _windowWidth;
+            _currentDicomImage.WindowCenter = _windowCenter;
+
+            // 通知 UI 数值变化
+            OnPropertyChanged(nameof(WindowWidth));
+            OnPropertyChanged(nameof(WindowCenter));
+
+            // 触发重新渲染
+            _ = RenderCurrentDicomImageAsync();
+        }
+
+        /// <summary>
+        /// 核心渲染逻辑：将当前的 DicomImage 渲染为 WPF Bitmap
+        /// </summary>
+        private async Task RenderCurrentDicomImageAsync()
+        {
+            // 简单的并发控制：如果正在渲染，跳过本次请求（丢帧策略，保证流畅度）
+            if (_isRendering || _currentDicomImage == null) return;
+
+            _isRendering = true;
+            try
+            {
+                // 在后台线程渲染
+                await Task.Run(async () =>
+                {
+                    // 使用 ImageSharp 渲染
+                    using var sharpImage = _currentDicomImage.RenderImage().AsSharpImage();
+                    using var ms = new MemoryStream();
+                    await sharpImage.SaveAsBmpAsync(ms);
+                    ms.Seek(0, SeekOrigin.Begin);
+
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.StreamSource = ms;
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.EndInit();
+                        bitmap.Freeze();
+
+                        ImageSource = bitmap;
+                    });
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"渲染出错: {ex.Message}");
+            }
+            finally
+            {
+                _isRendering = false;
+            }
+        }
+
+        #endregion
+
+        #region 标签相关方法
+        /// <summary>
+        /// 加载标签
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
         private async Task LoadDicomAsync(string path)
         {
             if (string.IsNullOrEmpty(path)) return;
@@ -158,7 +300,6 @@ namespace WpfApp.ViewModels
                     await Application.Current.Dispatcher.InvokeAsync(() => ClearData());
 
                     await Application.Current.Dispatcher.InvokeAsync(() => IsBusy = true);
-
 
                     SelectedFileName = Path.GetFileName(path);
                     SelectedFilePath = path;
@@ -174,29 +315,29 @@ namespace WpfApp.ViewModels
 
                     var file = await DicomFile.OpenAsync(path);
                     var dataset = file.Dataset;
-                    var patientId = dataset.GetString(DicomTag.PatientID);
-                    var patientName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.PatientName);
-                    var patientBirthDate = dataset.GetString(DicomTag.PatientBirthDate);
-                    var patientSex = DicomHelp.GetPatientSexDisplayText(dataset.GetString(DicomTag.PatientSex));
-                    var patientAge = dataset.GetString(DicomTag.PatientAge);
-                    var institutionName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.InstitutionName);
-                    var institutionalDepartmentName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.InstitutionalDepartmentName);
-                    var bodyPartExamined = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.BodyPartExamined);
-                    var modality = dataset.GetString(DicomTag.Modality);
-                    var instanceCreationDateTime = dataset.GetDateTime(DicomTag.InstanceCreationDate, DicomTag.InstanceCreationTime).ToString();
+                    //var patientId = dataset.GetString(DicomTag.PatientID);
+                    //var patientName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.PatientName);
+                    //var patientBirthDate = dataset.GetString(DicomTag.PatientBirthDate);
+                    //var patientSex = DicomHelp.GetPatientSexDisplayText(dataset.GetString(DicomTag.PatientSex));
+                    //var patientAge = dataset.GetString(DicomTag.PatientAge);
+                    //var institutionName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.InstitutionName);
+                    //var institutionalDepartmentName = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.InstitutionalDepartmentName);
+                    //var bodyPartExamined = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, DicomTag.BodyPartExamined);
+                    //var modality = dataset.GetString(DicomTag.Modality);
+                    //var instanceCreationDateTime = dataset.GetDateTime(DicomTag.InstanceCreationDate, DicomTag.InstanceCreationTime).ToString();
 
                     var entries = new List<DicomTagEntry>
                     {
-                        new(DicomTag.PatientID, "患者ID", patientId),
-                        new(DicomTag.PatientName, "患者Name", patientName),
-                        new(DicomTag.PatientBirthDate, "患者生日", patientBirthDate),
-                        new(DicomTag.PatientSex, "患者性别", patientSex),
-                        new(DicomTag.PatientAge, "患者年龄", patientAge),
-                        new(DicomTag.InstitutionName, "机构名称", institutionName),
-                        new(DicomTag.InstitutionalDepartmentName, "机构部门名称", institutionalDepartmentName),
-                        new(DicomTag.BodyPartExamined, "检查部位", bodyPartExamined),
-                        new(DicomTag.Modality, "设备类型", modality),
-                        new(DicomTag.InstanceCreationDate, "创建时间", instanceCreationDateTime)
+                        //new(DicomTag.PatientID, "患者ID", patientId),
+                        //new(DicomTag.PatientName, "患者Name", patientName),
+                        //new(DicomTag.PatientBirthDate, "患者生日", patientBirthDate),
+                        //new(DicomTag.PatientSex, "患者性别", patientSex),
+                        //new(DicomTag.PatientAge, "患者年龄", patientAge),
+                        //new(DicomTag.InstitutionName, "机构名称", institutionName),
+                        //new(DicomTag.InstitutionalDepartmentName, "机构部门名称", institutionalDepartmentName),
+                        //new(DicomTag.BodyPartExamined, "检查部位", bodyPartExamined),
+                        //new(DicomTag.Modality, "设备类型", modality),
+                        //new(DicomTag.InstanceCreationDate, "创建时间", instanceCreationDateTime)
                     };
 
                     // 加载数据集中尚未添加的任何其他标签
@@ -204,7 +345,7 @@ namespace WpfApp.ViewModels
                     {
                         if (item == null) continue;
                         var t = item.Tag;
-                        if (t == DicomTag.PatientID || t == DicomTag.PatientName || t == DicomTag.PatientBirthDate || t == DicomTag.PatientSex || t == DicomTag.PatientAge || t == DicomTag.InstitutionName || t == DicomTag.InstitutionalDepartmentName || t == DicomTag.BodyPartExamined || t == DicomTag.Modality || t == DicomTag.InstanceCreationDate) continue;
+                        //if (t == DicomTag.PatientID || t == DicomTag.PatientName || t == DicomTag.PatientBirthDate || t == DicomTag.PatientSex || t == DicomTag.PatientAge || t == DicomTag.InstitutionName || t == DicomTag.InstitutionalDepartmentName || t == DicomTag.BodyPartExamined || t == DicomTag.Modality || t == DicomTag.InstanceCreationDate) continue;
                         try
                         {
                             var text = DicomHelp.ReadDicomStringWithLibraryEncoding(dataset, t);
@@ -550,22 +691,6 @@ namespace WpfApp.ViewModels
             }
         }
 
-        /// <summary>
-        /// 清除所有加载的数据并将选择状态重置为默认值。
-        /// </summary>
-        /// <remarks>
-        /// 此方法取消订阅事件处理程序、清除内部集合并重置相关属性。
-        /// 应该调用它来释放资源并为新数据准备对象，或者在加载新文件之前，确保状态干净。
-        /// </remarks>
-        private void ClearData()
-        {
-            foreach (var e in DicomTags) e.PropertyChanged -= OnDicomEntryPropertyChanged;
-            DicomTags.Clear();
-            FileBasic.Clear();
-            SelectedFileName = string.Empty;
-            SelectedFilePath = string.Empty;
-            ImageSource = null;
-            CommandManager.InvalidateRequerySuggested();
-        }
+        #endregion
     }
 }

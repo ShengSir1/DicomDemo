@@ -27,7 +27,7 @@
                     <Button Content="选择 DCM 文件" Command="{Binding BrowseCommand}" Style="{StaticResource ButtonDashed}" Width="120" Height="32" Margin="0,0,12,0" HorizontalAlignment="Left" />
                     <TextBlock Text="已选文件：" VerticalAlignment="Center" Foreground="#444" />
                     <TextBox Text="{Binding SelectedFileName}" IsReadOnly="True" VerticalAlignment="Center" Margin="8,0,0,0" Width="380"/>
-                    <Button Content="加载图像" Command="{Binding LoadImageCommand}" Style="{StaticResource ButtonDashedPrimary}" Width="70" Height="32" Margin="12,0,12,0" HorizontalAlignment="Left" />
+                    <Button Content="重新加载图像" Command="{Binding LoadImageCommand}" Style="{StaticResource ButtonDashedPrimary}" Width="100" Height="32" Margin="12,0,12,0" HorizontalAlignment="Left" />
                     <Button Content="清空" Command="{Binding ClearCommand}" Width="70" Height="32" Margin="12,0,12,0" HorizontalAlignment="Left" />
                 </DockPanel>
             </Border>
@@ -58,7 +58,7 @@
                 </Grid.ColumnDefinitions>
 
                 <Border Grid.Column="0" Padding="10" CornerRadius="6" Background="#FFF" BorderBrush="#FFE6E6E6" BorderThickness="1">
-                    <Grid>
+                    <Grid Cursor="">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -88,9 +88,18 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock Text="图像预览" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8" />
 
-                        <Border Grid.Row="1" Background="#F5F5F5" CornerRadius="4" ClipToBounds="True">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="图像预览" FontWeight="SemiBold" FontSize="14" Margin="0,0,10,8" />
+                            <TextBlock Text="{Binding WindowCenter, StringFormat='WL: {0:F0}'}" VerticalAlignment="Bottom" FontSize="12" Margin="0,0,10,8" Foreground="Gray"/>
+                            <TextBlock Text="{Binding WindowWidth, StringFormat='WW: {0:F0}'}" VerticalAlignment="Bottom" FontSize="12" Margin="0,0,0,8" Foreground="Gray"/>
+                        </StackPanel>
+
+                        <Border Grid.Row="1" Background="#F5F5F5" CornerRadius="4" ClipToBounds="True"
+                                MouseLeftButtonDown="Image_MouseLeftButtonDown"
+                                MouseLeftButtonUp="Image_MouseLeftButtonUp"
+                                MouseMove="Image_MouseMove"
+                                Cursor="SizeAll">
                             <Image Source="{Binding ImageSource}" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </Grid>
